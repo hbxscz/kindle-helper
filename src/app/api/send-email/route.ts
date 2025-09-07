@@ -1,52 +1,82 @@
 import { NextRequest, NextResponse } from 'next/server';
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY.trim()) : null;
 
 export async function POST(request: NextRequest) {
   try {
-    // 暂时禁用邮件发送功能
-    return NextResponse.json({ 
-      error: 'Email sending is currently disabled. Please use the download feature instead.' 
-    }, { status: 503 });
-
     const { to, subject, text, html, attachments } = await request.json();
 
-    if (!to || !subject || !text) {
-      return NextResponse.json({ error: 'To, subject, and text are required' }, { status: 400 });
+    // 如果没有指定收件人，使用环境变量中的Kindle邮箱
+    const recipient = to || process.env.KINDLE_EMAIL || 'chenzhaoyy@gmail.com';
+
+    if (!recipient || !subject || !text) {
+      return NextResponse.json({ error: 'Recipient, subject, and text are required' }, { status: 400 });
     }
 
-    // 验证邮件配置
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-      return NextResponse.json({ error: 'Email configuration not set' }, { status: 500 });
+    // 验证Resend API配置
+    if (!resend) {
+      return NextResponse.json({ error: 'Resend API key not configured. Please add RESEND_API_KEY to your environment variables.' }, { status: 500 });
     }
 
-    // 配置邮件发送服务
-    // 注意：在实际生产环境中，这些配置应该来自环境变量
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      }
-    });
+    // 调试信息
+    console.log('API Key configured:', process.env.RESEND_API_KEY ? 'Yes' : 'No');
+    console.log('From email:', process.env.FROM_EMAIL);
+    console.log('To email (original):', to);
+    console.log('To email (final):', recipient);
+    console.log('KINDLE_EMAIL from env:', process.env.KINDLE_EMAIL);
+
+    // 发件人配置 - 从环境变量获取或使用默认值
+    const fromEmail = process.env.FROM_EMAIL || 'onboarding@resend.dev';
+    const fromName = process.env.FROM_NAME || 'Kindle Helper';
 
     // 邮件选项
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: to,
+    const mailOptions: {
+      from: string;
+      to: string[];
+      subject: string;
+      text: string;
+      html: string;
+      attachments?: Array<{
+        filename: string;
+        content: string;
+        encoding: string;
+      }>;
+    } = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [recipient],
       subject: subject,
       text: text,
       html: html || text,
-      attachments: attachments || []
     };
 
+    // 如果有附件，添加到邮件中
+    if (attachments && attachments.length > 0) {
+      mailOptions.attachments = attachments.map((attachment: {
+        filename: string;
+        content: string;
+        encoding?: string;
+      }) => ({
+        filename: attachment.filename,
+        content: attachment.content,
+        encoding: attachment.encoding || 'base64'
+      }));
+    }
+
     // 发送邮件
-    const info = await transporter.sendMail(mailOptions);
+    const { data, error } = await resend.emails.send(mailOptions);
+
+    if (error) {
+      console.error('Resend error:', error);
+      return NextResponse.json(
+        { error: `Failed to send email: ${error.message}` },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       message: 'Email sent successfully',
-      messageId: info.messageId
+      messageId: data?.id
     });
 
   } catch (error) {

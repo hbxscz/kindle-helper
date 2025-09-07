@@ -96,9 +96,14 @@ export async function POST(request: NextRequest) {
         article = {
           title: hugoTitle || dom.window.document.title.replace(/\s*\|.*$/, ''),
           content: hugoContent,
+          textContent: hugoContent.replace(/<[^>]*>/g, ''),
+          length: hugoContent.length,
           byline: '',
           publishedTime: '',
-          excerpt: ''
+          excerpt: '',
+          dir: 'ltr',
+          siteName: '',
+          lang: 'zh-CN'
         };
         console.log('Hugo-specific extraction completed, content length:', hugoContent.length);
       } else if (!article || !article.content) {
@@ -109,7 +114,7 @@ export async function POST(request: NextRequest) {
     // 使用DOMPurify清理HTML内容
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const DOMPurify = createDOMPurify(dom.window as any);
-    const cleanContent = DOMPurify.sanitize(article.content, {
+    const cleanContent = DOMPurify.sanitize(article.content || '', {
       USE_PROFILES: { html: true },
       FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed'],
       FORBID_ATTR: ['onclick', 'onload', 'onerror', 'style'],

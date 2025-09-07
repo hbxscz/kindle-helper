@@ -4,15 +4,17 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { PaperPlaneIcon, Link2Icon, ReloadIcon } from "@radix-ui/react-icons";
+import { PaperPlaneIcon, Link2Icon, ReloadIcon, EnvelopeClosedIcon } from "@radix-ui/react-icons";
 
 export default function Home() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sendingToKindle, setSendingToKindle] = useState(false);
   const [status, setStatus] = useState("");
 
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [articleTitle, setArticleTitle] = useState<string>("");
+  const [epubBlob, setEpubBlob] = useState<Blob | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,12 +52,15 @@ export default function Home() {
         throw new Error("生成电子书失败");
       }
 
-      const epubBlob = await epubResponse.blob();
+      const epubData = await epubResponse.blob();
+      
+      // 保存EPUB数据用于发送邮件
+      setEpubBlob(epubData);
       
       // 创建下载链接
-      const downloadObjectUrl = URL.createObjectURL(epubBlob);
+      const downloadObjectUrl = URL.createObjectURL(epubData);
       setDownloadUrl(downloadObjectUrl);
-      setStatus("生成成功！点击下载按钮保存EPUB文件");
+      setStatus("生成成功！点击下载按钮保存EPUB文件或发送到Kindle");
 
     } catch (error) {
       console.error("Error:", error);
@@ -73,6 +78,60 @@ export default function Home() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+    }
+  };
+
+  const handleSendToKindle = async () => {
+    if (!epubBlob || !articleTitle) {
+      setStatus("没有可发送的EPUB文件");
+      return;
+    }
+
+    setSendingToKindle(true);
+    setStatus("正在发送到Kindle邮箱...");
+
+    try {
+      // 将Blob转换为Base64
+      const base64Content = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          // 移除data:application/epub+zip;base64,前缀
+          const base64 = result.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(epubBlob);
+      });
+
+      // 发送到Kindle邮箱
+      const response = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: "", // 让后端使用环境变量中的默认收件人
+          subject: articleTitle,
+          text: `文章 "${articleTitle}" 已转换为Kindle格式`,
+          attachments: [{
+            filename: `${articleTitle.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}.epub`,
+            content: base64Content,
+            encoding: 'base64'
+          }]
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "发送失败");
+      }
+
+      setStatus("✅ 已成功发送到您的Kindle邮箱！");
+
+    } catch (error) {
+      console.error("Error sending to Kindle:", error);
+      setStatus(`发送失败: ${error instanceof Error ? error.message : "未知错误"}`);
+    } finally {
+      setSendingToKindle(false);
     }
   };
 
@@ -106,9 +165,9 @@ export default function Home() {
                   className="flex-1"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  disabled={loading}
+                  disabled={loading || sendingToKindle}
                 />
-                <Button type="submit" className="px-6" disabled={loading}>
+                <Button type="submit" className="px-6" disabled={loading || sendingToKindle}>
                   {loading ? (
                     <ReloadIcon className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
@@ -131,19 +190,33 @@ export default function Home() {
                   </span>
                   
                   {downloadUrl && (
-                    <Button 
-                      onClick={handleDownload}
-                      className="mt-2"
-                      variant="outline"
-                    >
-                      下载EPUB文件
-                    </Button>
+                    <div className="flex gap-2 mt-2">
+                      <Button 
+                        onClick={handleDownload}
+                        variant="outline"
+                        className="flex-1"
+                      >
+                        下载EPUB文件
+                      </Button>
+                      <Button 
+                        onClick={handleSendToKindle}
+                        disabled={sendingToKindle}
+                        className="flex-1"
+                      >
+                        {sendingToKindle ? (
+                          <ReloadIcon className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <EnvelopeClosedIcon className="h-4 w-4 mr-2" />
+                        )}
+                        发送到Kindle
+                      </Button>
+                    </div>
                   )}
                 </div>
               )}
               
               <div className="text-sm text-slate-500 dark:text-slate-400">
-                生成的EPUB文件可直接下载到本地或传输到Kindle设备
+                生成的EPUB文件可直接下载到本地，或一键发送到您的Kindle邮箱
               </div>
             </CardContent>
           </Card>

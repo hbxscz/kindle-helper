@@ -26,6 +26,7 @@
     "nodemailer": "^7.0.6",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "resend": "^6.0.2",
     "sharp": "^0.34.3",
     "single-file-cli": "^2.0.75",
     "tailwind-merge": "^3.3.1",
